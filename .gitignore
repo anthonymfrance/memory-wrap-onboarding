@@ -1,0 +1,19 @@
+__pycache__/
+architectures/__pycache__/
+.pyc
+core
+*transfer*.py
+*.pyc
+.vscode/
+
+# Ignore the massive datasets
+datasets/
+*.mat
+
+# Ignore the generated images
+images/
+paper/images/
+
+# Ignore Python cache
+__pycache__/
+*.pyc
