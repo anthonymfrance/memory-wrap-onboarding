@@ -68,52 +68,93 @@ def run(path:str,dataset_dir:str):
         im = im.squeeze().cpu().detach().numpy()
         transformed_im = np.transpose(im, (1, 2, 0))
         return transformed_im
+    
+    wrong_count = 0
+    saved_count = 0
 
+    with torch.no_grad():
 
-    for batch_idx, (images, _) in enumerate(test_loader):
-        print("Batch:{}/{}".format(batch_idx, len(test_loader)), end='\r')
-        try:
-            memory, _ = next(memory_iter)
-        except StopIteration:
-            memory_iter = iter(mem_loader)
-            memory, _ = next(memory_iter)
+        for batch_idx, (images, targets) in enumerate(test_loader):
+            print("Batch:{}/{}".format(batch_idx, len(test_loader)), end='\r')
+
+            if saved_count >= 20:
+                print(f"\nSuccessfullly generated {saved_count} images. Exiting...")
+                break
+            
+            try:
+                memory, _ = next(memory_iter)
+            except StopIteration:
+                memory_iter = iter(mem_loader)
+                memory, _ = next(memory_iter)
+                    
+            images = images.to(device)
+            targets = targets.to(device)
+            memory = memory.to(device)
+
+            # compute output
+            outputs,rw = model(images,memory,return_weights=True)
+            _, predictions = torch.max(outputs, 1)
+
+            # compute memory outputs
+            mem_val,memory_sorted_index = torch.sort(rw,descending=True)
+            
+            for ind in range(len(images)):
+                true_class_idx = targets[ind].item()
+                pred_class_idx = predictions[ind].item()
+                absolute_idx = batch_idx * batch_size_test + ind
+
+                if true_class_idx == pred_class_idx:
+                    continue
                 
-        images = images.to(device)
-        memory = memory.to(device)
+                print(f"\n[!] Mistake found! Total mistakes so far: {wrong_count} (Index: {absolute_idx})")
+                wrong_count += 1
 
-        # compute output
-        outputs,rw = model(images,memory,return_weights=True)
-        _, predictions = torch.max(outputs, 1)
+                if wrong_count <= 20:
+                    print(f"    --> Skipping mistake #{wrong_count} per requirements...")
+                    continue
 
-        # compute memory outputs
-        mem_val,memory_sorted_index = torch.sort(rw,descending=True)
-        fig = plt.figure(figsize=(batch_size_test*2, 4),dpi=300)
-        columns = batch_size_test
-        rows = 2
-        for ind in range(len(images)):
-            input_selected = images[ind].unsqueeze(0)
 
-            # M_c u M_e : set of sample with a positive impact on prediction
-            m_ec = memory_sorted_index[ind][mem_val[ind]>0]
+                fig = plt.figure(figsize= (2, 4), dpi=300)
+                columns = 1
+                rows = 2
 
-            # get reduced memory
-            reduced_mem = undo_normalization(memory[m_ec])
-            npimg = torchvision.utils.make_grid(reduced_mem,nrow=4).cpu().numpy()
+                input_selected = images[ind].unsqueeze(0)
 
-            # build and store image
+                # M_c u M_e : set of sample with a positive impact on prediction
+                m_ec = memory_sorted_index[ind][mem_val[ind]>0]
 
-            fig.add_subplot(rows, columns, ind+1)
-            plt.imshow((get_image(input_selected)* 255).astype(np.uint8),interpolation='nearest', aspect='equal')
-            plt.title('Prediction:{}'.format(name_classes[predictions[ind]]))
-            plt.axis('off')
-            ax2 = fig.add_subplot(rows, columns, batch_size_test+1+ind)
-            plt.imshow((np.transpose(npimg, (1,2,0))* 255).astype(np.uint8),interpolation='nearest', aspect='equal')
-            plt.title('Used Samples')
-            plt.axis('off')
-        fig.tight_layout()
-        fig.savefig(dir_save+str(batch_idx*batch_size_test+ind)+".png")
-        plt.close()
-        print('Generated {}/{} images'.format(batch_idx,len(test_loader)),end='\r')
+                # get reduced memory
+                reduced_mem = undo_normalization(memory[m_ec])
+                npimg = torchvision.utils.make_grid(reduced_mem,nrow=4).cpu().numpy()
+
+                # build and store image
+
+                fig.add_subplot(rows, columns, 1)
+                plt.imshow((get_image(input_selected)* 255).astype(np.uint8),interpolation='nearest', aspect='equal')
+                
+                title_text = f"Idx: {absolute_idx}\nTrue: {name_classes[true_class_idx]}\nPred: {name_classes[pred_class_idx]}"
+                plt.title(title_text, fontsize=8, color='red', fontweight='bold')
+                plt.axis('off')
+
+
+
+                ax2 = fig.add_subplot(rows, columns,2)
+                plt.imshow((np.transpose(npimg, (1,2,0))* 255).astype(np.uint8),interpolation='nearest', aspect='equal')
+                plt.title('Used Samples')
+                plt.axis('off')
+                fig.tight_layout()
+
+
+                file_path = dir_save + f"wrong_idx_{absolute_idx}.png"
+                fig.savefig(file_path)
+                plt.close()
+                
+                saved_count += 1
+                print(f'\nSaved image {saved_count}/20 (Absolute Index: {absolute_idx})')
+
+                if saved_count >= 20:
+                    break
+
 
 
 def main(argv):
