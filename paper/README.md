@@ -56,73 +56,77 @@ conda install pytorch==1.9.1 torchvision=0.10.1 cudatoolkit=11.3 captum==0.3.0 a
 pip install memorywrap
 ```
 ## Repository Structure
-This is the description of repository structure. Note that folders inside "images" dir and "models" dir will be created at running time only when you run the respective scripts to generate images or models.
-```  
-   Memory Wrap
-   ├── architectures
-   │   ├── autoencoder.py
-   │   ├── efficientnet.py
-   │   ├── mobilenet.py
-   │   ├── resnet.py
-   │   ├── googlenet.py
-   │   ├── shufflenet.py
-   │   ├── wide_resnet.py
-   │   └── densenet.py
-   ├── scripts
-   │   └── wrappers
-   │   │   ├── densenet.py
-   │   │   ├── efficientnet.py
-   │   │   ├── googlenet.py
-   │   │   ├── mobilenet.py
-   │   │   ├── resnet.py
-   │   │   ├── shufflenet.py
-   │   │   └── memory.py
-   │   ├── run_cf_proto.py
-   │   ├── run_exp_by_examples.py
-   │   ├── run_matching.py
-   │   ├── run_protonet.py
-   │   ├── train_aes.svhn.py
-   │   ├── generate_heatmaps.py
-   │   ├── generate_memory_images.py
-   │   └── README.md
-   ├── config
-   │   └── train.yaml
-   ├── utils
-   │   ├── counterfactuals_utils.py
-   │   ├── datasets.py
-   │   └── utils.py
-   ├── images
-   │   ├── mem_images
-   │   |   ├── SVHN
-   │   |   |   ├── memory
-   │   |   |   └── encoder_memory
-   │   |   ├── CIFAR10
-   │   |   |   ├── memory
-   │   |   |   └── encoder_memory
-   |   │   └── CINIC10
-   │   |       ├── memory
-   │   |       └── encoder_memory
-   |   └── saliency
-   │       ├── SVHN
-   │       |   ├── memory
-   │       |   └── encoder_memory
-   │       ├── CIFAR10
-   │       |   ├── memory
-   │       |   └── encoder_memory
-   |       └── CINIC10
-   │           ├── memory
-   │           └── encoder_memory
-   ├── models
-   |   └── pretrained.pt 
-   ├── README.md
-   ├── train.py
-   ├── eval.py
-   ├── memory.py
-   ├── explanation_accuracy.py
-   └── README.md
+This repository now has a small project-level wrapper at the root, while the original research code lives under `paper/`. Generated assets such as datasets, figures, and sample outputs live at the root as well.
 
+```text
+Memory Wrap
+|-- datasets
+|   |-- test_32x32.mat
+|   `-- train_32x32.mat
+|-- images
+|   |-- architectures.png
+|   |-- cifarmem.png
+|   |-- heatmap1.png
+|   |-- heatmap2.png
+|   |-- svhnmem.png
+|   `-- mem_images
+|       `-- SVHN
+|           `-- encoder_memory
+|               `-- mobilenet
+|-- paper
+|   |-- architectures
+|   |   |-- autoencoder.py
+|   |   |-- densenet.py
+|   |   |-- efficientnet.py
+|   |   |-- googlenet.py
+|   |   |-- mobilenet.py
+|   |   |-- resnet.py
+|   |   |-- shufflenet.py
+|   |   `-- wide_resnet.py
+|   |-- config
+|   |   `-- train.yaml
+|   |-- models
+|   |   `-- 2000.pt
+|   |-- scripts
+|   |   |-- wrappers
+|   |   |   |-- densenet.py
+|   |   |   |-- efficientnet.py
+|   |   |   |-- googlenet.py
+|   |   |   |-- memory.py
+|   |   |   |-- mobilenet.py
+|   |   |   |-- resnet.py
+|   |   |   `-- shufflenet.py
+|   |   |-- generate_heatmaps.py
+|   |   |-- generate_memory_images.py
+|   |   |-- README.md
+|   |   |-- run_counterfactuals.py
+|   |   |-- run_exp_by_examples.py
+|   |   |-- run_matching.py
+|   |   |-- run_protonet.py
+|   |   `-- train_aes_svhn.py
+|   |-- utils
+|   |   |-- __init__.py
+|   |   |-- counterfactuals_utils.py
+|   |   |-- datasets.py
+|   |   `-- utils.py
+|   |-- VIT
+|   |   |-- train_memory_vit.py
+|   |   |-- train_vit.py
+|   |   |-- utils.py
+|   |   `-- vit.py
+|   |-- datasets.py
+|   |-- eval.py
+|   |-- eval_dir_mv.py
+|   |-- explanation_accuracy.py
+|   |-- README.md
+|   `-- train.py
+|-- results_samples
+|   `-- *.png
+|-- .gitignore
+|-- LICENSE.txt
+|-- memory.py
+`-- README.md
 ```
-
 ## Architectures
 This directory contains the PyTorch modules of the architectures used in the paper (DenseNet, ResNet, EfficientNet, AutoEncoders, ShuffleNet, WideResNet, GoogleNet, MobileNet) and the Memory Wrap module.
 
@@ -284,3 +288,4 @@ It contains auxiliary functions used to train and load models.
 
 ### counterfactuals_utils.py
 It contains auxiliary functions used in the script to compute counterfactuals (scripts/run_counterfactuals.py).
+
