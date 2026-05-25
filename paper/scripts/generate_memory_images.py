@@ -10,6 +10,14 @@ import absl.app
 import utils.datasets as datasets
 import utils.utils as utils
 
+from sklearn.neighbors import NearestNeighbors
+
+seed = 42
+np.random.seed(seed)
+torch.manual_seed(seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(seed)
+
 # user flags
 absl.flags.DEFINE_string("path_model", None, "Path of the trained model")
 absl.flags.DEFINE_integer("batch_size_test", 3, "Number of samples for each image")
@@ -24,11 +32,11 @@ def run(path:str,dataset_dir:str):
     """ Function to generate memory images for testing images using a given
     model. Memory images show the samples in the memory set that have an
     impact on the current prediction.
-
     Args:
         path (str): model path
         dataset_dir (str): dir where datasets are stored
     """
+
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print("Device:{}".format(device))    
     # load model
@@ -42,7 +50,6 @@ def run(path:str,dataset_dir:str):
     model = model.to(device)
     model.eval()
 
-
     # load data
     train_examples = checkpoint['train_examples']
     if dataset_name == 'CIFAR10' or dataset_name == 'CINIC10':
@@ -55,6 +62,46 @@ def run(path:str,dataset_dir:str):
     _, _, test_loader, mem_loader = load_dataset(dataset_dir,batch_size_train=50, batch_size_test=batch_size_test,batch_size_memory=100,size_train=train_examples)
     memory_iter = iter(mem_loader)
     
+    all_features = []
+    all_labels = []
+    all_images = []
+
+    for mem_images, mem_targets in mem_loader:
+
+        all_images.append(mem_images.cpu())
+        mem_images = mem_images.to(device)
+        myfeatures = model.forward_encoder(mem_images)
+        all_features.append(myfeatures.cpu().detach().numpy())
+        all_labels.append(mem_targets.cpu().numpy())
+
+    stacked_features = np.vstack(all_features)
+    stacked_labels = np.concatenate(all_labels)
+    stacked_images = torch.cat(all_images, dim=0)
+
+    stacked_features = stacked_features.reshape(stacked_features.shape[0], stacked_features.shape[1])
+    from sklearn.cluster import KMeans
+    kmeans = KMeans(n_clusters=10, random_state=seed)
+    kmeans.fit(stacked_features)
+    cluster_assignments = kmeans.labels_
+    representative_indices = []
+
+
+    nn_model = NearestNeighbors(n_neighbors=10)
+    nn_model.fit(stacked_features)
+
+    for cluster_num in range(10):
+        matching_indices = np.where(cluster_assignments == cluster_num)[0]
+
+        first_match_index = matching_indices[0]
+
+        representative_indices.append(first_match_index)
+
+    km_memory_batch = stacked_images[representative_indices]
+    km_memory_batch = km_memory_batch.to(device)
+
+
+
+
     #saving stuff
     dir_save = "../images/mem_images/"+dataset_name+"/"+modality+"/" + checkpoint['model_name'] + "/"
     if not os.path.isdir(dir_save): 
@@ -71,6 +118,9 @@ def run(path:str,dataset_dir:str):
     
     wrong_count = 0
     saved_count = 0
+
+
+
 
     with torch.no_grad():
 
@@ -207,7 +257,113 @@ def run(path:str,dataset_dir:str):
                 if not found_correction:
                     print(f"    --> EXPERIMENT 2: Failed. Tried {max_attempts} random batches and none fixed it.")
 
+
+
+                print("    --> Starting Experiment 3: K Means 10 Cluster test")
+
+                outputs_rep, rw_km = model(input_selected, km_memory_batch, return_weights=True)
+                winning_cluster_idx = torch.argmax(rw_km).item()
+                print(f"The model is most confident about Cluster #{winning_cluster_idx}")
+                km_final_memory = stacked_images[cluster_assignments == winning_cluster_idx].to(device)
+                outputs_km = model(input_selected, km_final_memory, return_weights=False)
+                _, km_prediction = torch.max(outputs_km, 1)
+
+                if km_prediction.item() == true_class_idx:
+                    print(f" --> EXPERIMENT 3: Success! K-Means cluster fixed prediction for index {absolute_idx}")
+                else:
+                    print(f" --> EXPERIMENT 3: Failed. Still guessed {name_classes[km_prediction.item()]}")
+
+                winning_cluster_labels = stacked_labels[cluster_assignments == winning_cluster_idx]
+                tallies = np.bincount(winning_cluster_labels)
+                majority_digit = np.argmax(tallies)
+
+                print(f"Cluster {winning_cluster_idx} is mostly made of the number: {majority_digit}")
+                for digit, count in enumerate(tallies):
+                    print(f" Digit {digit}: {count} samples")
+
+
+                print("    --> Starting Experiment 4: Genetic Algorithm test")
                 
+                focus_parent = np.random.choice(np.where(cluster_assignments == winning_cluster_idx)[0], 10, replace=False)
+                alt_parents = [np.random.choice(np.where(cluster_assignments == c)[0], 10, replace=False) for c in range(10) if c != winning_cluster_idx]
+                
+                children = []
+                for alt_parent in alt_parents:
+                    five_focus = np.random.choice(focus_parent, 5, replace=False)
+                    five_alt = np.random.choice(alt_parent, 5, replace=False)
+                    child = np.concatenate([five_focus, five_alt])
+                    slot = np.random.randint(0,10)
+                    child[slot] = np.random.choice(range(len(stacked_images)))
+                    children.append(child)
+                                
+                fitness_scores = []
+                for child in children:
+                    mem_batch = stacked_images[child].to(device)
+                    outputs, _ = model(input_selected, mem_batch, return_weights = True)
+                    fitness = -outputs[0, pred_class_idx]
+                    fitness_scores.append(fitness.item())
+                
+                sorted_indices = np.argsort(fitness_scores)[::-1]
+                top_4_indices = sorted_indices[:4]
+                survivors = [children[i] for i in top_4_indices]
+
+
+                for generation in range(5):
+                    new_children = []
+                    for child in range(9):
+                        parent_indices = np.random.choice(len(survivors), 2, replace=False)
+                        parent_a = survivors[parent_indices[0]]
+                        parent_b = survivors[parent_indices[1]]
+                        five_a = np.random.choice(parent_a, 5, replace=False)
+                        five_b = np.random.choice(parent_b, 5, replace=False)
+                        child = np.concatenate ([five_a, five_b])
+                        slot = np.random.randint(0,10)
+                        child[slot] = np.random.choice(range(len(stacked_images)))
+                        new_children.append(child)
+
+                    fitness_scores = []
+                    for child in new_children:
+                        mem_batch = stacked_images[child].to(device)
+                        outputs, _ = model(input_selected, mem_batch, return_weights = True)
+                        fitness = -outputs[0, pred_class_idx]
+                        fitness_scores.append(fitness.item())
+                    
+                    sorted_indices = np.argsort(fitness_scores)[::-1]
+                    top_4_indices = sorted_indices[:4]
+                    survivors = [new_children[i] for i in top_4_indices]
+
+                best_mem = stacked_images[survivors[0]].to(device) 
+                outputs_ga, _ = model(input_selected, best_mem, return_weights=True)
+                _, ga_prediction = torch.max(outputs_ga, 1)
+
+                if ga_prediction.item() == true_class_idx:
+                    print(f"    --> EXPERIMENT 4: Success! GA fixed prediction for index {absolute_idx}")
+                else:
+                    print(f"    --> EXPERIMENT 4: Failed. Still guessed {name_classes[ga_prediction.item()]}")
+
+
+
+
+                print("    --> Starting Experiment 5: KNN")
+                
+                query_features = model.forward_encoder(input_selected)
+                query_features = query_features.cpu().detach().numpy()
+                
+
+                distances, indices = nn_model.kneighbors(query_features)
+                knn_mem = stacked_images[indices[0]].to(device)
+                outputs_knn, _ = model(input_selected, knn_mem, return_weights=True)
+                _, knn_prediction = torch.max(outputs_knn, 1)
+
+                if knn_prediction.item() == true_class_idx:
+                    print(f"    --> EXPERIMENT 5 KNN: Success!")
+                else:
+                    print(f"    --> EXPERIMENT 5 KNN: Failed. Still guessed {name_classes[knn_prediction.item()]}")
+
+
+
+
+
 
                 # M_c u M_e : set of sample with a positive impact on prediction
                 m_ec = memory_sorted_index[ind][mem_val[ind]>0]
@@ -243,6 +399,11 @@ def run(path:str,dataset_dir:str):
 
                 if saved_count >= 20:
                     break
+
+                
+
+
+
 
 
 
