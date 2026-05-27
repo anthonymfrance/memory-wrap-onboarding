@@ -67,12 +67,17 @@ def run(path:str,dataset_dir:str):
     all_images = []
 
     for mem_images, mem_targets in mem_loader:
-
         all_images.append(mem_images.cpu())
         mem_images = mem_images.to(device)
-        myfeatures = model.forward_encoder(mem_images)
-        all_features.append(myfeatures.cpu().detach().numpy())
+        if hasattr(model, 'forward_encoder'):
+            myfeatures = model.forward_encoder(mem_images)
+            all_features.append(myfeatures.cpu().detach().numpy())
+        else:
+            flattened = mem_images.view(mem_images.size(0), -1)
+            all_features.append(flattened.cpu().numpy())
         all_labels.append(mem_targets.cpu().numpy())
+        
+
 
     stacked_features = np.vstack(all_features)
     stacked_labels = np.concatenate(all_labels)
@@ -82,12 +87,16 @@ def run(path:str,dataset_dir:str):
     from sklearn.cluster import KMeans
     kmeans = KMeans(n_clusters=10, random_state=seed)
     kmeans.fit(stacked_features)
+
     cluster_assignments = kmeans.labels_
     representative_indices = []
 
 
     nn_model = NearestNeighbors(n_neighbors=10)
-    nn_model.fit(stacked_features)
+    if hasattr(model, 'forward_encoder'):
+        nn_model.fit(stacked_features)
+    else:
+        nn_model.fit(stacked_images.view(stacked_images.size(0), -1).numpy())
 
     for cluster_num in range(10):
         matching_indices = np.where(cluster_assignments == cluster_num)[0]
@@ -344,11 +353,18 @@ def run(path:str,dataset_dir:str):
 
 
 
+
+
+
                 print("    --> Starting Experiment 5: KNN")
                 
-                query_features = model.forward_encoder(input_selected)
-                query_features = query_features.cpu().detach().numpy()
-                
+                if hasattr(model, 'forward_encoder'):
+
+                    query_features = model.forward_encoder(input_selected)
+                    query_features = query_features.cpu().detach().numpy()
+                else:
+                    query_features = input_selected.view(input_selected.size(0), -1).cpu().numpy()
+
 
                 distances, indices = nn_model.kneighbors(query_features)
                 knn_mem = stacked_images[indices[0]].to(device)
@@ -359,8 +375,6 @@ def run(path:str,dataset_dir:str):
                     print(f"    --> EXPERIMENT 5 KNN: Success!")
                 else:
                     print(f"    --> EXPERIMENT 5 KNN: Failed. Still guessed {name_classes[knn_prediction.item()]}")
-
-
 
 
 
