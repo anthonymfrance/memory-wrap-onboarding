@@ -76,7 +76,6 @@ def run(path:str,dataset_dir:str):
             flattened = mem_images.view(mem_images.size(0), -1)
             all_features.append(flattened.cpu().numpy())
         all_labels.append(mem_targets.cpu().numpy())
-        
 
 
     stacked_features = np.vstack(all_features)
