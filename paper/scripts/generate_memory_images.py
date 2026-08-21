@@ -27,6 +27,37 @@ absl.flags.mark_flag_as_required("path_model")
 FLAGS = absl.flags.FLAGS
 
 
+def compute_prototypes(support, targets, classes=10):
+    class_prototypes = []
+    for label in range(classes):
+        class_prototypes.append(support[targets == label].mean(dim=0))
+    return torch.stack(class_prototypes)
+
+
+
+def prototype_retrieval_with_reject(query_features, stacked_features, stacked_labels, stacked_images, classes=10, confidence_margin=0.1):
+    prototypes = compute_prototypes(torch.tensor(stacked_features), torch.tensor(stacked_labels), classes)
+    distances = torch.cdist(torch.tensor(query_features), prototypes)
+    sorted_dist, sorted_class = torch.sort(distances, dim=1)
+
+    best_dist, second_dist = sorted_dist[0, 0], sorted_dist[0, 1]
+    best_class = sorted_class[0, 0].item()
+
+    gap = second_dist - best_dist
+    if gap < confidence_margin:
+        return None, "ambiguous — too close to call, consider dropping"
+
+    class_mask = (stacked_labels == best_class)
+    class_features = stacked_features[class_mask]
+    class_indices = np.where(class_mask)[0]
+    dists_to_query = np.linalg.norm(class_features - query_features, axis=1)
+    top_indices = class_indices[np.argsort(dists_to_query)[:10]]
+
+    return stacked_images[top_indices], f"confident match: class {best_class}"
+
+
+
+
 
 def run(path:str,dataset_dir:str):
     """ Function to generate memory images for testing images using a given
@@ -375,7 +406,23 @@ def run(path:str,dataset_dir:str):
                 else:
                     print(f"    --> EXPERIMENT 5 KNN: Failed. Still guessed {name_classes[knn_prediction.item()]}")
 
+                print("    --> Starting Experiment 6: Prototype Retrieval with Reject Option")
 
+                proto_mem, proto_msg = prototype_retrieval_with_reject(
+                    query_features, stacked_features, stacked_labels, stacked_images
+                )
+
+                if proto_mem is None:
+                    print(f"    --> EXPERIMENT 6: Skipped. {proto_msg}")
+                else:
+                    proto_mem = proto_mem.to(device)
+                    outputs_proto, _ = model(input_selected, proto_mem, return_weights=True)
+                    _, proto_prediction = torch.max(outputs_proto, 1)
+
+                    if proto_prediction.item() == true_class_idx:
+                        print(f"    --> EXPERIMENT 6: Success! Prototype retrieval fixed prediction for index {absolute_idx}")
+                    else:
+                        print(f"    --> EXPERIMENT 6: Failed. Still guessed {name_classes[proto_prediction.item()]}")
 
 
                 # M_c u M_e : set of sample with a positive impact on prediction
